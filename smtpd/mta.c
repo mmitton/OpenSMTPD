@@ -804,7 +804,7 @@ mta_query_mx(struct mta_relay *relay)
 	if (waitq_wait(&relay->domain->mxs, mta_on_mx, relay)) {
 		id = generate_uid();
 		tree_xset(&wait_mx, id, relay->domain);
-		if (relay->domain->flags)
+		if (relay->domain->flags == 1)
 			dns_query_host(id, relay->domain->name);
 		else if (relay->hoststable)
 			dns_query_hoststable(id, relay->hoststable);
@@ -1616,6 +1616,9 @@ mta_relay(struct envelope *e)
 	if (e->agent.mta.relay.flags & RELAY_BACKUP) {
 		key.domain = mta_domain(e->dest.domain, 0);
 		key.backupname = e->agent.mta.relay.hostname;
+	} else if (e->agent.mta.relay.hoststable[0]) {
+		key.domain = mta_domain(e->agent.mta.relay.hoststable, 2);
+		key.flags |= RELAY_MX;
 	} else if (e->agent.mta.relay.hostname[0]) {
 		key.domain = mta_domain(e->agent.mta.relay.hostname, 1);
 		key.flags |= RELAY_MX;
