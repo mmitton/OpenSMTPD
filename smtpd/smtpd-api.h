@@ -194,6 +194,7 @@ enum table_service {
 	K_SOURCE	= 0x20, /* returns struct source	*/
 	K_MAILADDR	= 0x40, /* returns struct mailaddr	*/
 	K_ADDRNAME	= 0x80, /* returns struct addrname	*/
+	K_RELAYHOST	= 0x100, /* returns struct relayhost	*/
 };
 #define K_ANY		  0xff
 

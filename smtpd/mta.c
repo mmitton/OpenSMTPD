@@ -89,7 +89,7 @@ static int mta_relay_cmp(const struct mta_relay *, const struct mta_relay *);
 SPLAY_PROTOTYPE(mta_relay_tree, mta_relay, entry, mta_relay_cmp);
 
 SPLAY_HEAD(mta_host_tree, mta_host);
-static struct mta_host *mta_host(const struct sockaddr *);
+static struct mta_host *mta_host(const struct sockaddr *, const char *);
 static void mta_host_ref(struct mta_host *);
 static void mta_host_unref(struct mta_host *);
 static int mta_host_cmp(const struct mta_host *, const struct mta_host *);
@@ -178,6 +178,7 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 	struct msg		 m;
 	const char		*secret;
 	const char		*hostname;
+	const char		*original;
 	uint64_t		 reqid;
 	time_t			 t;
 	char			 buf[SMTPD_MAXLINESIZE];
@@ -308,12 +309,14 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 		case IMSG_DNS_HOST:
 			m_msg(&m, imsg);
 			m_get_id(&m, &reqid);
+			m_get_string(&m, &original);
 			m_get_sockaddr(&m, (struct sockaddr*)&ss);
 			m_get_int(&m, &preference);
 			m_end(&m);
+
 			domain = tree_xget(&wait_mx, reqid);
 			mx = xcalloc(1, sizeof *mx, "mta: mx");
-			mx->host = mta_host((struct sockaddr*)&ss);
+			mx->host = mta_host((struct sockaddr*)&ss, original);
 			mx->preference = preference;
 			TAILQ_FOREACH(imx, &domain->mxs, entry) {
 				if (imx->preference > mx->preference) {
@@ -335,9 +338,10 @@ mta_imsg(struct mproc *p, struct imsg *imsg)
 				log_debug("debug: MXs for domain %s:",
 				    domain->name);
 				TAILQ_FOREACH(mx, &domain->mxs, entry)
-					log_debug("	%s preference %d",
+					log_debug("	%s preference %d (%s)",
 					    sa_to_text(mx->host->sa),
-					    mx->preference);
+					    mx->preference,
+					    mx->host->original);
 			}
 			else {
 				log_debug("debug: Failed MX query for %s:",
@@ -802,6 +806,8 @@ mta_query_mx(struct mta_relay *relay)
 		tree_xset(&wait_mx, id, relay->domain);
 		if (relay->domain->flags)
 			dns_query_host(id, relay->domain->name);
+		else if (relay->hoststable)
+			dns_query_hoststable(id, relay->hoststable);
 		else
 			dns_query_mx(id, relay->domain->name);
 	}
@@ -1149,8 +1155,8 @@ mta_connect(struct mta_connector *c)
 		return;
 	}
 
-	log_debug("debug: mta-routing: spawning new connection on %s",
-		    mta_route_to_text(route));
+	log_debug("debug: mta-routing: spawning new connection on %s (original %s)",
+		    mta_route_to_text(route), route->dst->original);
 
 	c->nconn += 1;
 	c->lastconn = time(NULL);
@@ -1639,6 +1645,9 @@ mta_relay(struct envelope *e)
 	key.heloname = e->agent.mta.relay.heloname;
 	if (!key.heloname[0])
 		key.heloname = NULL;
+	key.hoststable = e->agent.mta.relay.hoststable;
+	if (!key.hoststable[0])
+		key.hoststable = NULL;
 
 	if ((r = SPLAY_FIND(mta_relay_tree, &relays, &key)) == NULL) {
 		r = xcalloc(1, sizeof *r, "mta_relay");
@@ -1664,6 +1673,9 @@ mta_relay(struct envelope *e)
 		if (key.heloname)
 			r->heloname = xstrdup(key.heloname,
 			    "mta: heloname");
+		if (key.hoststable)
+			r->hoststable = xstrdup(key.hoststable,
+			    "mta: hoststable");
 		SPLAY_INSERT(mta_relay_tree, &relays, r);
 		stat_increment("mta.relay", 1);
 	} else {
@@ -1708,6 +1720,7 @@ mta_relay_unref(struct mta_relay *relay)
 	free(relay->pki_name);
 	free(relay->helotable);
 	free(relay->heloname);
+	free(relay->hoststable);
 	free(relay->secret);
 	free(relay->sourcetable);
 
@@ -1782,6 +1795,12 @@ mta_relay_to_text(struct mta_relay *relay)
 		strlcat(buf, sep, sizeof buf);
 		strlcat(buf, "heloname=", sizeof buf);
 		strlcat(buf, relay->heloname, sizeof buf);
+	}
+
+	if (relay->hoststable) {
+		strlcat(buf, sep, sizeof buf);
+		strlcat(buf, "hoststable=", sizeof buf);
+		strlcat(buf, relay->hoststable, sizeof buf);
 	}
 
 	strlcat(buf, "]", sizeof buf);
@@ -1928,6 +1947,13 @@ mta_relay_cmp(const struct mta_relay *a, const struct mta_relay *b)
 	if (a->heloname && ((r = strcmp(a->heloname, b->heloname))))
 		return (r);
 
+	if (a->hoststable == NULL && b->hoststable)
+		return (-1);
+	if (a->hoststable && b->hoststable == NULL)
+		return (1);
+	if (a->hoststable && ((r = strcmp(a->hoststable, b->hoststable))))
+		return (r);
+
 	if (a->pki_name == NULL && b->pki_name)
 		return (-1);
 	if (a->pki_name && b->pki_name == NULL)
@@ -1944,18 +1970,20 @@ mta_relay_cmp(const struct mta_relay *a, const struct mta_relay *b)
 SPLAY_GENERATE(mta_relay_tree, mta_relay, entry, mta_relay_cmp);
 
 static struct mta_host *
-mta_host(const struct sockaddr *sa)
+mta_host(const struct sockaddr *sa, const char *original)
 {
 	struct mta_host		key, *h;
 	struct sockaddr_storage	ss;
 
 	memmove(&ss, sa, sa->sa_len);
 	key.sa = (struct sockaddr*)&ss;
+	strlcpy(key.original, original, sizeof(key.original));
 	h = SPLAY_FIND(mta_host_tree, &hosts, &key);
 
 	if (h == NULL) {
 		h = xcalloc(1, sizeof(*h), "mta_host");
 		h->sa = xmemdup(sa, sa->sa_len, "mta_host");
+		strlcpy(h->original, original, sizeof(h->original));
 		SPLAY_INSERT(mta_host_tree, &hosts, h);
 		stat_increment("mta.host", 1);
 	}

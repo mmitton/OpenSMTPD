@@ -863,14 +863,17 @@ deliver_action	: DELIVER TO MAILDIR			{
 relay_action   	: RELAY relay {
 			rule->r_action = A_RELAY;
 		}
-		| RELAY VIA STRING {
+		| RELAY VIA tables {
+			struct table	*t = $3;
+
 			rule->r_action = A_RELAYVIA;
-			if (! text_to_relayhost(&rule->r_value.relayhost, $3)) {
-				yyerror("error: invalid url: %s", $3);
-				free($3);
+			if (! table_check_use(t, T_DYNAMIC|T_LIST, K_RELAYHOST)) {
+				yyerror("invalid use of table \"%s\" as "
+				    "RELAY VIA parameter", t->t_name);
 				YYERROR;
 			}
-			free($3);
+			strlcpy(rule->r_value.relayhost.hoststable, t->t_name,
+			    sizeof rule->r_value.relayhost.hoststable);
 		} relay_via {
 			/* no worries, F_AUTH cant be set without SSL */
 			if (rule->r_value.relayhost.flags & F_AUTH) {

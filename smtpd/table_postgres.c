@@ -489,6 +489,7 @@ table_postgres_lookup(int service, const char *key, char *dst, size_t sz)
 	case K_SOURCE:
 	case K_MAILADDR:
 	case K_ADDRNAME:
+	case K_RELAYHOST:
 		if (strlcpy(dst, PQgetvalue(res, 0, 0), sz) >= sz) {
 			log_warnx("warn: table-postgres: result too large");
 			r = -1;

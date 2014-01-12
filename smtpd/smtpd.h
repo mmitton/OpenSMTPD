@@ -115,6 +115,7 @@ struct relayhost {
 	char sourcetable[SMTPD_MAXPATHLEN];
 	char heloname[SMTPD_MAXHOSTNAMELEN];
 	char helotable[SMTPD_MAXPATHLEN];
+	char hoststable[SMTPD_MAXPATHLEN];
 };
 
 struct credentials {
@@ -144,13 +145,14 @@ union lookup {
 	struct userinfo		 userinfo;
 	struct mailaddr		 mailaddr;
 	struct addrname		 addrname;
+	struct relayhost	 relayhost;
 };
 
 /*
  * Bump IMSG_VERSION whenever a change is made to enum imsg_type.
  * This will ensure that we can never use a wrong version of smtpctl with smtpd.
  */
-#define	IMSG_VERSION		7
+#define	IMSG_VERSION		8
 
 enum imsg_type {
 	IMSG_NONE,
@@ -258,6 +260,7 @@ enum imsg_type {
 	IMSG_DNS_PTR,
 	IMSG_DNS_MX,
 	IMSG_DNS_MX_PREFERENCE,
+	IMSG_DNS_HOSTSTABLE,
 
 	IMSG_STAT_INCREMENT,
 	IMSG_STAT_DECREMENT,
@@ -617,6 +620,7 @@ struct filter {
 
 struct mta_host {
 	SPLAY_ENTRY(mta_host)	 entry;
+	char			 original[SMTPD_MAXHOSTNAMELEN];
 	struct sockaddr		*sa;
 	char			*ptrname;
 	int			 refcount;
@@ -750,6 +754,7 @@ struct mta_relay {
 	char			*authlabel;
 	char			*helotable;
 	char			*heloname;
+	char			*hoststable;
 	char			*secret;
 
 	int			 state;
@@ -1099,6 +1104,7 @@ void dns_query_host(uint64_t, const char *);
 void dns_query_ptr(uint64_t, const struct sockaddr *);
 void dns_query_mx(uint64_t, const char *);
 void dns_query_mx_preference(uint64_t, const char *, const char *);
+void dns_query_hoststable(uint64_t, const char *);
 void dns_imsg(struct mproc *, struct imsg *);
 
 

@@ -210,6 +210,7 @@ envelope_dump_buffer(const struct envelope *ep, char *dest, size_t len)
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-flags");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-heloname");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-helotable");
+		envelope_ascii_dump(ep, &dest, &len, "mta-relay-hoststable");
 		envelope_ascii_dump(ep, &dest, &len, "mta-relay-source");
 		break;
 	case D_BOUNCE:
@@ -264,6 +265,7 @@ envelope_check_dict(struct dict *d)
 		{ "mta-relay-flags",		1,	"mta" },
 		{ "mta-relay-heloname",		1,	"mta" },
 		{ "mta-relay-helotable",	1,	"mta" },
+		{ "mta-relay-hoststable",	1,	"mta" },
 		{ "mta-relay-source",		1,	"mta" },
 
 		{ "bounce-type",       		0,	"bounce" },
@@ -587,6 +589,10 @@ ascii_load_field(const char *field, struct envelope *ep, char *buf)
 		return ascii_load_string(ep->agent.mta.relay.helotable, buf,
 		    sizeof ep->agent.mta.relay.helotable);
 
+	if (strcasecmp("mta-relay-hoststable", field) == 0)
+		return ascii_load_string(ep->agent.mta.relay.hoststable, buf,
+		    sizeof ep->agent.mta.relay.hoststable);
+
 	if (strcasecmp("mta-relay-source", field) == 0)
 		return ascii_load_string(ep->agent.mta.relay.sourcetable, buf,
 		    sizeof ep->agent.mta.relay.sourcetable);
@@ -909,6 +915,10 @@ ascii_dump_field(const char *field, const struct envelope *ep,
 
 	if (strcasecmp(field, "mta-relay-helotable") == 0)
 		return ascii_dump_string(ep->agent.mta.relay.helotable,
+		    buf, len);
+
+	if (strcasecmp(field, "mta-relay-hoststable") == 0)
+		return ascii_dump_string(ep->agent.mta.relay.hoststable,
 		    buf, len);
 
 	if (strcasecmp(field, "mta-relay-source") == 0)

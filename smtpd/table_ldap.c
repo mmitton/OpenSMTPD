@@ -46,6 +46,7 @@ enum {
 	LDAP_SOURCE,
 	LDAP_MAILADDR,
 	LDAP_ADDRNAME,
+	LDAP_RELAYHOST,
 
 	LDAP_MAX
 };
@@ -364,6 +365,12 @@ ldap_config(void)
 		else if (!strcmp(key, "userinfo_attributes"))
 			ldap_parse_attributes(queries[LDAP_USERINFO].attrs,
 			    key, value, 4);
+
+		else if (!strcmp(key, "relayhost_filter"))
+			read_value(&queries[LDAP_USERINFO].filter, key, value);
+		else if (!strcmp(key, "relayhost_attributes"))
+			ldap_parse_attributes(queries[LDAP_USERINFO].attrs,
+			    key, value, 1);
 		else
 			log_warnx("warn: table-ldap: bogus entry \"%s\"", key);
 	}
@@ -496,6 +503,7 @@ ldap_run_query(int type, const char *key, char *dst, size_t sz)
 	case K_SOURCE:		q = &queries[LDAP_SOURCE];	break;
 	case K_MAILADDR:	q = &queries[LDAP_MAILADDR];	break;
 	case K_ADDRNAME:	q = &queries[LDAP_ADDRNAME];	break;
+	case K_RELAYHOST:	q = &queries[LDAP_RELAYHOST];	break;
 	default:
 		return (-1);
 	}

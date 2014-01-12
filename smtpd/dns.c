@@ -41,6 +41,7 @@
 
 struct dns_lookup {
 	struct dns_session	*session;
+	char			 original[SMTPD_MAXHOSTNAMELEN];
 	int			 preference;
 };
 
@@ -58,7 +59,7 @@ struct async_event;
 struct async_event * async_run_event(struct async *,
 	void (*)(int, struct async_res *, void *), void *);
 
-static void dns_lookup_host(struct dns_session *, const char *, int);
+static void dns_lookup_host(struct dns_session *, const char *, const char *, int);
 static void dns_dispatch_host(int, struct async_res *, void *);
 static void dns_dispatch_ptr(int, struct async_res *, void *);
 static void dns_dispatch_mx(int, struct async_res *, void *);
@@ -100,6 +101,15 @@ dns_query_mx_preference(uint64_t id, const char *domain, const char *mx)
 	m_add_id(p_lka, id);
 	m_add_string(p_lka, domain);
 	m_add_string(p_lka, mx);
+	m_close(p_lka);
+}
+
+void
+dns_query_hoststable(uint64_t id, const char *hoststable)
+{
+	m_create(p_lka,  IMSG_DNS_HOSTSTABLE, 0, 0, -1);
+	m_add_id(p_lka, id);
+	m_add_string(p_lka, hoststable);
 	m_close(p_lka);
 }
 
@@ -157,8 +167,12 @@ dns_imsg(struct mproc *p, struct imsg *imsg)
 	struct sockaddr		*sa;
 	struct async		*as;
 	struct msg		 m;
-	const char		*domain, *mx, *host;
+	const char		*domain, *mx, *host, *hoststable, *key;
 	socklen_t		 sl;
+	void 			*iter;
+	struct table 		*t;
+	int			 pref;
+	struct relayhost	 relay;
 
 	s = xcalloc(1, sizeof *s, "dns_imsg");
 	s->type = imsg->hdr.type;
@@ -172,7 +186,7 @@ dns_imsg(struct mproc *p, struct imsg *imsg)
 	case IMSG_DNS_HOST:
 		m_get_string(&m, &host);
 		m_end(&m);
-		dns_lookup_host(s, host, -1);
+		dns_lookup_host(s, host, NULL, -1);
 		return;
 
 	case IMSG_DNS_PTR:
@@ -243,6 +257,20 @@ dns_imsg(struct mproc *p, struct imsg *imsg)
 		async_run_event(as, dns_dispatch_mx_preference, s);
 		return;
 
+	case IMSG_DNS_HOSTSTABLE:
+		m_get_string(&m, &hoststable);
+		m_end(&m);
+		strlcpy(s->name, hoststable, sizeof(s->name));
+		t = table_find(hoststable, NULL);
+
+		pref = 0;
+		while(dict_iter(&t->t_dict, &iter, &key, NULL)) {
+			pref += 10;
+			text_to_relayhost(&relay, key);
+			dns_lookup_host(s, relay.hostname, key, pref);
+		}
+		return;
+
 	default:
 		log_warnx("warn: bad dns request %d", s->type);
 		fatal(NULL);
@@ -262,6 +290,7 @@ dns_dispatch_host(int ev, struct async_res *ar, void *arg)
 		s->mxfound++;
 		m_create(s->p, IMSG_DNS_HOST, 0, 0, -1);
 		m_add_id(s->p, s->reqid);
+		m_add_string(s->p, lookup->original);
 		m_add_sockaddr(s->p, ai->ai_addr);
 		m_add_int(s->p, lookup->preference);
 		m_close(s->p);
@@ -336,14 +365,14 @@ dns_dispatch_mx(int ev, struct async_res *ar, void *arg)
 			continue;
 		print_dname(rr.rr.mx.exchange, buf, sizeof(buf));
 		buf[strlen(buf) - 1] = '\0';
-		dns_lookup_host(s, buf, rr.rr.mx.preference);
+		dns_lookup_host(s, buf, NULL, rr.rr.mx.preference);
 		found++;
 	}
 	free(ar->ar_data);
 
 	/* fallback to host if no MX is found. */
 	if (found == 0)
-		dns_lookup_host(s, s->name, 0);
+		dns_lookup_host(s, s->name, NULL, 0);
 }
 
 static void
@@ -396,7 +425,7 @@ dns_dispatch_mx_preference(int ev, struct async_res *ar, void *arg)
 }
 
 static void
-dns_lookup_host(struct dns_session *s, const char *host, int preference)
+dns_lookup_host(struct dns_session *s, const char *host, const char *original, int preference)
 {
 	struct dns_lookup	*lookup;
 	struct addrinfo		 hints;
@@ -405,6 +434,12 @@ dns_lookup_host(struct dns_session *s, const char *host, int preference)
 	lookup = xcalloc(1, sizeof *lookup, "dns_lookup_host");
 	lookup->preference = preference;
 	lookup->session = s;
+
+	if (original)
+		strlcpy(lookup->original, original, sizeof(lookup->original));
+	else
+		memset(&original, 0, sizeof(original));
+
 	s->refcount++;
 
 	memset(&hints, 0, sizeof(hints));

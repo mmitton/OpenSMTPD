@@ -95,6 +95,7 @@ table_service_name(enum table_service s)
 	case K_SOURCE:		return "SOURCE";
 	case K_MAILADDR:	return "MAILADDR";
 	case K_ADDRNAME:	return "ADDRNAME";
+	case K_RELAYHOST:	return "RELAYHOST";
 	default:		return "???";
 	}
 }
@@ -621,6 +622,12 @@ table_parse_lookup(enum table_service service, const char *key,
 			return (-1);
 		return (1);
 
+	case K_RELAYHOST:
+		printf("K_RELAYHOST: %s\n", line);
+		if (!text_to_relayhost(&lk->relayhost, line))
+			return (-1);
+		return (1);
+
 	default:
 		return (-1);
 	}
@@ -676,6 +683,11 @@ table_dump_lookup(enum table_service s, union lookup *lk)
 	case K_ADDRNAME:
 		snprintf(buf, sizeof(buf), "%s",
 		    lk->addrname.name);
+		break;
+
+	case K_RELAYHOST:
+		snprintf(buf, sizeof(buf), "%s",
+		    relayhost_to_text(&lk->relayhost));
 		break;
 
 	default:

@@ -463,6 +463,7 @@ table_sqlite_lookup(int service, const char *key, char *dst, size_t sz)
 	case K_SOURCE:
 	case K_MAILADDR:
 	case K_ADDRNAME:
+	case K_RELAYHOST:
 		if (strlcpy(dst, sqlite3_column_text(stmt, 0), sz) >= sz) {
 			log_warnx("warn: table-sqlite: result too large");
 			r = -1;
